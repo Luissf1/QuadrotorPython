@@ -285,8 +285,8 @@ def evaluate_pid(gains, z_des, phi_des, theta_des, psi_des):
             metrics['t_rise'] = np.nan
         
         metrics['steady_error'] = np.mean(np.abs(error_z[int(0.9*len(error_z)):]))
-        metrics['ITSE'] = np.trapz(t * error_z**2, t)
-        metrics['IAE'] = np.trapz(np.abs(error_z), t)
+        metrics['ITSE'] = np.trapezoid(t * error_z**2, t)
+        metrics['IAE'] = np.trapezoid(np.abs(error_z), t)
         metrics['RMSE'] = np.sqrt(np.mean(error_z**2))
         
         # Calculate fitness function
