@@ -1,21 +1,21 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 
 # ==========================================================
-# Resultados obtenidos (ejemplo: llena con tus datos)
+# Resultados obtenidos
 # ==========================================================
 
 # --- Resultados SIN disturbio ---
-# Cada fila: [SettlingTime, Overshoot, ITSE, IAE]
 resultados_no_dist = [
-    [0.82, 0.05, 0.010, 0.200],
-    [0.90, 0.01, 0.008, 0.220],
-    [0.87, 0.04, 0.012, 0.210],
-    [0.88, 0.03, 0.009, 0.190],
-    [0.84, 0.06, 0.011, 0.205]
+    [1.101101101, 0.981613847, 0.08759185 , 0.625743666],
+    [0.830830831, 0.127173193, 0.112271798, 0.642020181],
+    [0.950950951, 0.060452183, 0.235049988, 0.911622821],
+    [1.011011011, 1.473953159, 0.078539115, 0.591643162],
+    [0.810810811, 0.0        , 0.011456358, 0.197389013]
 ]
 
-# --- Resultados CON disturbio (los que ya me diste) ---
+# --- Resultados CON disturbio ---
 resultados_dist = [
     [1.051051051, 1.897292264, 0.075040146, 0.548239485],
     [0.870870871, 0.032821126, 0.003134391, 0.11741169 ],
@@ -61,11 +61,42 @@ print("\n=== Tabla comparativa de promedios ===\n")
 print(resumen)
 
 # ==========================================================
-# Graficar comparación (ejemplo: barras de costo)
+# Gráfico de barras (Costo)
 # ==========================================================
 plt.figure(figsize=(8,5))
 plt.bar(resumen["Controller"], resumen["Costo"], color=["skyblue","salmon"])
 plt.title("Comparación de Costo Promedio")
 plt.ylabel("Costo")
 plt.grid(True, linestyle="--", alpha=0.6)
+plt.show()
+
+# ==========================================================
+# Gráfico radar (spider chart)
+# ==========================================================
+# Métricas
+labels = ["SettlingTime", "Overshoot", "ITSE", "IAE", "Costo"]
+num_vars = len(labels)
+
+# Valores promedio
+no_dist_values = resumen.iloc[0,1:].values.tolist()
+dist_values = resumen.iloc[1,1:].values.tolist()
+
+# Cerrar el radar (último punto = primer punto)
+angles = np.linspace(0, 2*np.pi, num_vars, endpoint=False).tolist()
+no_dist_values += no_dist_values[:1]
+dist_values += dist_values[:1]
+angles += angles[:1]
+
+# Crear figura
+fig, ax = plt.subplots(figsize=(6,6), subplot_kw=dict(polar=True))
+
+ax.plot(angles, no_dist_values, "o-", linewidth=2, label="PSO-PID (No Disturbance)")
+ax.fill(angles, no_dist_values, alpha=0.25)
+
+ax.plot(angles, dist_values, "o-", linewidth=2, label="PSO-PID (With Disturbance)")
+ax.fill(angles, dist_values, alpha=0.25)
+
+ax.set_thetagrids(np.degrees(angles[:-1]), labels)
+ax.set_title("Radar Chart - Comparative Metrics", size=14)
+ax.legend(loc="upper right", bbox_to_anchor=(1.3, 1.1))
 plt.show()
