@@ -4,10 +4,10 @@ import numpy as np
 from matplotlib.patches import Patch
 
 # ==========================================================
-# Resultados obtenidos
+# Results Obtained
 # ==========================================================
 
-# --- Resultados SIN disturbio ---
+# --- Results WITHOUT disturbance ---
 resultados_no_dist = [
     [1.101101101, 0.981613847, 0.08759185 , 0.625743666],
     [0.830830831, 0.127173193, 0.112271798, 0.642020181],
@@ -16,7 +16,7 @@ resultados_no_dist = [
     [0.810810811, 0.0        , 0.011456358, 0.197389013]
 ]
 
-# --- Resultados CON disturbio ---
+# --- Results WITH disturbance ---
 resultados_dist = [
     [1.051051051, 1.897292264, 0.075040146, 0.548239485],
     [0.870870871, 0.032821126, 0.003134391, 0.11741169 ],
@@ -26,7 +26,7 @@ resultados_dist = [
 ]
 
 # ==========================================================
-# Crear DataFrames
+# Create DataFrames
 # ==========================================================
 df_no_dist = pd.DataFrame(resultados_no_dist, columns=["SettlingTime","Overshoot","ITSE","IAE"])
 df_disturbio = pd.DataFrame(resultados_dist, columns=["SettlingTime","Overshoot","ITSE","IAE"])
@@ -41,7 +41,7 @@ df_disturbio['Type'] = 'With Disturbance'
 df_combined = pd.concat([df_no_dist, df_disturbio], ignore_index=True)
 
 # ==========================================================
-# Definir pesos de la función de costo
+# Define cost function weights
 # ==========================================================
 w_settle, w_overshoot, w_itse, w_iae = 0.3, 0.3, 0.2, 0.2
 
@@ -51,13 +51,13 @@ def cost_function(settle, overshoot, itse, iae):
             w_itse*itse +
             w_iae*iae)
 
-# Agregar columna de costo
+# Add cost column
 df_no_dist["Costo"] = df_no_dist.apply(lambda row: cost_function(row["SettlingTime"], row["Overshoot"], row["ITSE"], row["IAE"]), axis=1)
 df_disturbio["Costo"] = df_disturbio.apply(lambda row: cost_function(row["SettlingTime"], row["Overshoot"], row["ITSE"], row["IAE"]), axis=1)
 df_combined["Costo"] = df_combined.apply(lambda row: cost_function(row["SettlingTime"], row["Overshoot"], row["ITSE"], row["IAE"]), axis=1)
 
 # ==========================================================
-# Calcular promedios y mejoras
+# Calculate averages and improvements
 # ==========================================================
 resumen = pd.DataFrame({
     "Controller": ["PSO-PID (No Disturbance)", "PSO-PID (With Disturbance)"],
@@ -83,24 +83,24 @@ resumen_improvement = pd.DataFrame({
     "Improvement (%)": improvements
 })
 
-print("\n=== Tabla comparativa de promedios ===\n")
+print("\n=== Comparative Averages Table ===\n")
 print(resumen)
 
-print("\n=== Mejora porcentual ===\n")
+print("\n=== Percentage Improvement ===\n")
 print(resumen_improvement)
 
 # ==========================================================
-# Visualización mejorada para presentación
+# Enhanced visualization for presentation
 # ==========================================================
 plt.style.use('default')
 fig = plt.figure(figsize=(20, 12))
 
-# 1. Comparación de costos individuales
+# 1. Individual cost comparison
 ax1 = plt.subplot(2, 3, 1)
 colors = ['skyblue']*5 + ['salmon']*5
 bars = ax1.bar(df_combined['Flight'], df_combined['Costo'], color=colors)
-ax1.set_title("Costo por Vuelo Individual", fontsize=14, fontweight='bold')
-ax1.set_ylabel("Costo")
+ax1.set_title("Cost per Individual Flight", fontsize=14, fontweight='bold')
+ax1.set_ylabel("Cost")
 ax1.tick_params(axis='x', rotation=45)
 ax1.grid(True, linestyle="--", alpha=0.6)
 
@@ -111,11 +111,11 @@ for bar in bars:
             f'{height:.3f}', ha='center', va='bottom', fontsize=9)
 
 # Add legend
-legend_elements = [Patch(facecolor='skyblue', label='Sin Disturbio'),
-                  Patch(facecolor='salmon', label='Con Disturbio')]
+legend_elements = [Patch(facecolor='skyblue', label='Without Disturbance'),
+                  Patch(facecolor='salmon', label='With Disturbance')]
 ax1.legend(handles=legend_elements, loc='upper right')
 
-# 2. Comparación de métricas promedio
+# 2. Average metrics comparison
 ax2 = plt.subplot(2, 3, 2)
 metrics = ['SettlingTime', 'Overshoot', 'ITSE', 'IAE', 'Costo']
 x_pos = np.arange(len(metrics))
@@ -124,14 +124,14 @@ width = 0.35
 no_dist_vals = [resumen.iloc[0][m] for m in metrics]
 with_dist_vals = [resumen.iloc[1][m] for m in metrics]
 
-bars1 = ax2.bar(x_pos - width/2, no_dist_vals, width, label='Sin Disturbio', alpha=0.8, color='skyblue')
-bars2 = ax2.bar(x_pos + width/2, with_dist_vals, width, label='Con Disturbio', alpha=0.8, color='salmon')
+bars1 = ax2.bar(x_pos - width/2, no_dist_vals, width, label='Without Disturbance', alpha=0.8, color='skyblue')
+bars2 = ax2.bar(x_pos + width/2, with_dist_vals, width, label='With Disturbance', alpha=0.8, color='salmon')
 
-ax2.set_xlabel('Métricas')
-ax2.set_ylabel('Valores')
-ax2.set_title('Comparación de Métricas Promedio', fontsize=14, fontweight='bold')
+ax2.set_xlabel('Metrics')
+ax2.set_ylabel('Values')
+ax2.set_title('Average Metrics Comparison', fontsize=14, fontweight='bold')
 ax2.set_xticks(x_pos)
-ax2.set_xticklabels(['Settling\nTime', 'Overshoot', 'ITSE', 'IAE', 'Costo'])
+ax2.set_xticklabels(['Settling\nTime', 'Overshoot', 'ITSE', 'IAE', 'Cost'])
 ax2.legend()
 ax2.grid(True, alpha=0.3)
 
@@ -142,13 +142,13 @@ for bars in [bars1, bars2]:
         ax2.text(bar.get_x() + bar.get_width()/2., height,
                 f'{height:.3f}', ha='center', va='bottom', fontsize=9)
 
-# 3. Mejora porcentual
+# 3. Percentage improvement
 ax3 = plt.subplot(2, 3, 3)
 colors = ['green' if imp > 0 else 'red' for imp in resumen_improvement['Improvement (%)']]
 bars = ax3.bar(resumen_improvement['Metric'], resumen_improvement['Improvement (%)'], color=colors, alpha=0.7)
-ax3.set_xlabel('Métricas')
-ax3.set_ylabel('Mejora (%)')
-ax3.set_title('Mejora Porcentual con Controlador Optimizado', fontsize=14, fontweight='bold')
+ax3.set_xlabel('Metrics')
+ax3.set_ylabel('Improvement (%)')
+ax3.set_title('Percentage Improvement with Optimized Controller', fontsize=14, fontweight='bold')
 ax3.axhline(y=0, color='black', linestyle='-', alpha=0.3)
 ax3.tick_params(axis='x', rotation=45)
 ax3.grid(True, alpha=0.3)
@@ -159,19 +159,19 @@ for bar in bars:
     ax3.text(bar.get_x() + bar.get_width()/2., height,
             f'{height:.1f}%', ha='center', va='bottom' if height > 0 else 'top', fontsize=10)
 
-# 4. Scatter plot de SettlingTime vs Overshoot
+# 4. Scatter plot of SettlingTime vs Overshoot
 ax4 = plt.subplot(2, 3, 4)
-scatter1 = ax4.scatter(df_no_dist['SettlingTime'], df_no_dist['Overshoot'], color='blue', 
-            label='Sin Disturbio', s=100, alpha=0.7)
-scatter2 = ax4.scatter(df_disturbio['SettlingTime'], df_disturbio['Overshoot'], color='red', 
-            label='Con Disturbio', s=100, alpha=0.7)
+scatter1 = ax4.scatter(df_no_dist['SettlingTime'], df_no_dist['Overshoot'], color='blue',
+            label='Without Disturbance', s=100, alpha=0.7)
+scatter2 = ax4.scatter(df_disturbio['SettlingTime'], df_disturbio['Overshoot'], color='red',
+            label='With Disturbance', s=100, alpha=0.7)
 
 # Add flight labels
 for i, row in df_no_dist.iterrows():
-    ax4.annotate(f'N{i+1}', (row['SettlingTime'], row['Overshoot']), 
+    ax4.annotate(f'N{i+1}', (row['SettlingTime'], row['Overshoot']),
                 xytext=(5, 5), textcoords='offset points', fontsize=8)
 for i, row in df_disturbio.iterrows():
-    ax4.annotate(f'D{i+1}', (row['SettlingTime'], row['Overshoot']), 
+    ax4.annotate(f'D{i+1}', (row['SettlingTime'], row['Overshoot']),
                 xytext=(5, 5), textcoords='offset points', fontsize=8)
 
 ax4.set_title("SettlingTime vs Overshoot", fontsize=14, fontweight='bold')
@@ -182,14 +182,14 @@ ax4.grid(True, linestyle="--", alpha=0.6)
 
 # 5. Radar chart
 ax5 = plt.subplot(2, 3, 5, polar=True)
-labels = ["SettlingTime", "Overshoot", "ITSE", "IAE", "Costo"]
+labels = ["SettlingTime", "Overshoot", "ITSE", "IAE", "Cost"]
 num_vars = len(labels)
 
-# Valores promedio
+# Average values
 no_dist_values = resumen.iloc[0,1:].values.tolist()
 dist_values = resumen.iloc[1,1:].values.tolist()
 
-# Cerrar el radar (último punto = primer punto)
+# Close the radar (last point = first point)
 angles = np.linspace(0, 2*np.pi, num_vars, endpoint=False).tolist()
 no_dist_values += no_dist_values[:1]
 dist_values += dist_values[:1]
@@ -205,11 +205,11 @@ ax5.set_thetagrids(np.degrees(angles[:-1]), labels)
 ax5.set_title("Radar Chart - Comparative Metrics", fontsize=14, fontweight='bold')
 ax5.legend(loc="upper right", bbox_to_anchor=(1.5, 1.1))
 
-# 6. Costo promedio
+# 6. Average Cost
 ax6 = plt.subplot(2, 3, 6)
 bars = ax6.bar(resumen["Controller"], resumen["Costo"], color=["skyblue","salmon"])
-ax6.set_title("Comparación de Costo Promedio", fontsize=14, fontweight='bold')
-ax6.set_ylabel("Costo")
+ax6.set_title("Average Cost Comparison", fontsize=14, fontweight='bold')
+ax6.set_ylabel("Cost")
 ax6.grid(True, linestyle="--", alpha=0.6)
 
 # Add value labels on bars
@@ -223,19 +223,19 @@ plt.savefig('comprehensive_comparison.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # ==========================================================
-# Tabla para presentación
+# Table for presentation
 # ==========================================================
 print("\n" + "="*80)
-print("TABLA PARA PRESENTACIÓN - RESUMEN DE RESULTADOS")
+print("PRESENTATION TABLE - RESULTS SUMMARY")
 print("="*80)
 
 presentation_table = pd.DataFrame({
-    'Métrica': ['Tiempo de Estabilización (s)', 'Sobreimpulso (%)', 'ITSE', 'IAE', 'Costo Total'],
-    'Sin Disturbio': [f"{resumen.iloc[0,1]:.3f}", f"{resumen.iloc[0,2]:.3f}", 
+    'Metric': ['Settling Time (s)', 'Overshoot (%)', 'ITSE', 'IAE', 'Total Cost'],
+    'Without Disturbance': [f"{resumen.iloc[0,1]:.3f}", f"{resumen.iloc[0,2]:.3f}",
                      f"{resumen.iloc[0,3]:.3f}", f"{resumen.iloc[0,4]:.3f}", f"{resumen.iloc[0,5]:.3f}"],
-    'Con Disturbio': [f"{resumen.iloc[1,1]:.3f}", f"{resumen.iloc[1,2]:.3f}", 
+    'With Disturbance': [f"{resumen.iloc[1,1]:.3f}", f"{resumen.iloc[1,2]:.3f}",
                      f"{resumen.iloc[1,3]:.3f}", f"{resumen.iloc[1,4]:.3f}", f"{resumen.iloc[1,5]:.3f}"],
-    'Mejora (%)': [f"{improvements[0]:.1f}%", f"{improvements[1]:.1f}%", 
+    'Improvement (%)': [f"{improvements[0]:.1f}%", f"{improvements[1]:.1f}%",
                   f"{improvements[2]:.1f}%", f"{improvements[3]:.1f}%", f"{improvements[4]:.1f}%"]
 })
 
