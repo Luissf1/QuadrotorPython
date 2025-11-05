@@ -31,8 +31,12 @@ def create_disturbance_visualization():
     ax1.grid(True, alpha=0.3)
     ax1.legend(loc='upper right')
     
-    # Highlight disturbance period (2-7 seconds as in your comparison function)
-    ax1.axvspan(2, 7, alpha=0.2, color='gray', label='Typical Disturbance Period')
+    # CORREGIDO: Highlight disturbance period (2.4-7.4 seconds)
+    ax1.axvspan(2.4, 7.4, alpha=0.2, color='yellow', label='Disturbance Period (2.4-7.4s)')
+    
+    # Add vertical lines to mark boundaries
+    ax1.axvline(x=2.4, color='orange', linestyle='--', alpha=0.7)
+    ax1.axvline(x=7.4, color='orange', linestyle='--', alpha=0.7)
     
     # 2. Vector field visualization (at a specific time)
     ax2 = fig.add_subplot(gs[1, 0])
@@ -42,7 +46,7 @@ def create_disturbance_visualization():
     y = np.linspace(-1, 1, 10)
     X, Y = np.meshgrid(x, y)
     
-    # Calculate vector field at t=5 seconds
+    # Calculate vector field at t=5 seconds (within disturbance period)
     t_sample = 5
     Fx_sample = 0.5 * np.sin(0.5 * t_sample) * np.ones_like(X)
     Fy_sample = 0.5 * np.cos(0.5 * t_sample) * np.ones_like(Y)
@@ -51,12 +55,12 @@ def create_disturbance_visualization():
     ax2.quiver(X, Y, Fx_sample, Fy_sample, scale=5, color='purple', alpha=0.7)
     ax2.set_xlabel('X Position')
     ax2.set_ylabel('Y Position')
-    ax2.set_title(f'Disturbance Vector Field at t = {t_sample}s')
+    ax2.set_title(f'Disturbance Vector Field at t = {t_sample}s (Within 2.4-7.4s period)')
     ax2.set_xlim(-1.2, 1.2)
     ax2.set_ylim(-1.2, 1.2)
     ax2.grid(True, alpha=0.3)
     
-    # Add text annotation with equations (simplified for Matplotlib)
+    # Add text annotation with equations
     equation_text = (
         r'$\mathbf{F_d} = [F_x, F_y, F_z]^T = $'
         r'$[0.5 \sin(0.5t), 0.5 \cos(0.5t), 0]^T$'
@@ -85,9 +89,6 @@ def create_disturbance_visualization():
     plt.tight_layout()
     plt.savefig('disturbance_visualization.png', dpi=300, bbox_inches='tight')
     plt.show()
-    
-    # Create a simplified version for your slide
-    create_simplified_disturbance_plot()
 
 def create_simplified_disturbance_plot():
     """
@@ -112,11 +113,13 @@ def create_simplified_disturbance_plot():
     ax1.grid(True, alpha=0.3)
     ax1.legend()
     
-    # Highlight disturbance period
-    ax1.axvspan(2, 7, alpha=0.2, color='gray', label='Disturbance Period')
+    # CORREGIDO: Highlight disturbance period (2.4-7.4 seconds)
+    ax1.axvspan(2.4, 7.4, alpha=0.2, color='yellow', label='Disturbance Period (2.4-7.4s)')
+    ax1.axvline(x=2.4, color='orange', linestyle='--', alpha=0.7)
+    ax1.axvline(x=7.4, color='orange', linestyle='--', alpha=0.7)
     
     # Right: Vector diagram at specific time
-    t_sample = 5
+    t_sample = 5  # Within the disturbance period
     Fx_sample = 0.5 * np.sin(0.5 * t_sample)
     Fy_sample = 0.5 * np.cos(0.5 * t_sample)
     
@@ -126,10 +129,10 @@ def create_simplified_disturbance_plot():
     ax2.set_ylim(-0.6, 0.6)
     ax2.set_xlabel('X Force Component')
     ax2.set_ylabel('Y Force Component')
-    ax2.set_title(f'Disturbance Vector at t = {t_sample}s')
+    ax2.set_title(f'Disturbance Vector at t = {t_sample}s\n(Within 2.4-7.4s period)')
     ax2.grid(True, alpha=0.3)
     
-    # Add text with equations (simplified for Matplotlib)
+    # Add text with equations
     equation_text = (
         r'$\mathbf{F_d} = [F_x, F_y, F_z]^T = $'
         r'$[0.5 \sin(0.5t), 0.5 \cos(0.5t), 0]^T$'
@@ -186,11 +189,16 @@ def create_combined_methodology_visualization():
     ax2.plot(t, Fy, 'b-', linewidth=2, label=r'$F_y = 0.5 \cdot \cos(0.5t)$')
     ax2.set_xlabel('Time (s)')
     ax2.set_ylabel('Force (N)')
-    ax2.set_title("Wind Disturbance Model", fontsize=12)
+    ax2.set_title("Wind Disturbance Model (Period: 2.4-7.4s)", fontsize=12)
     ax2.grid(True, alpha=0.3)
     ax2.legend()
     
-    # Add equation text (simplified for Matplotlib)
+    # CORREGIDO: Highlight the correct period
+    ax2.axvspan(2.4, 7.4, alpha=0.2, color='yellow')
+    ax2.axvline(x=2.4, color='orange', linestyle='--', alpha=0.7)
+    ax2.axvline(x=7.4, color='orange', linestyle='--', alpha=0.7)
+    
+    # Add equation text
     equation_text = (
         r'$\mathbf{F_d} = [F_x, F_y, F_z]^T = $'
         r'$[0.5 \sin(0.5t), 0.5 \cos(0.5t), 0]^T$'
@@ -206,37 +214,52 @@ def create_combined_methodology_visualization():
 def create_controller_comparison():
     """
     Create a comparison of controller performance with and without disturbance.
+    CORRECTED VERSION: Uses 2.4-7.4s disturbance period
     """
     # Simulate some example data for comparison
     t = np.linspace(0, 10, 1000)
     
-    # Simulated responses (these would be replaced with your actual data)
+    # Find indices for the disturbance period (2.4-7.4s)
+    disturbance_start_idx = np.argmin(np.abs(t - 2.4))
+    disturbance_end_idx = np.argmin(np.abs(t - 7.4))
+    
+    # Simulated responses
     z_desired = np.ones_like(t)  # Desired height of 1m
     
     # Standard controller response (underdamped with disturbance)
     z_standard = 1 - np.exp(-0.8*t) * (np.cos(2*t) + 0.4*np.sin(2*t))
-    z_standard[300:700] += 0.3 * np.sin(0.5*(t[300:700]-3))  # Add disturbance effect
+    # CORREGIDO: Add disturbance effect during 2.4-7.4s
+    z_standard[disturbance_start_idx:disturbance_end_idx] += 0.3 * np.sin(0.5*(t[disturbance_start_idx:disturbance_end_idx]-2.4))
     
     # Disturbance-optimized controller response (better disturbance rejection)
     z_optimized = 1 - np.exp(-1.2*t) * (np.cos(2.5*t) + 0.3*np.sin(2.5*t))
-    z_optimized[300:700] += 0.1 * np.sin(0.5*(t[300:700]-3))  # Smaller disturbance effect
+    # CORREGIDO: Add smaller disturbance effect during 2.4-7.4s
+    z_optimized[disturbance_start_idx:disturbance_end_idx] += 0.1 * np.sin(0.5*(t[disturbance_start_idx:disturbance_end_idx]-2.4))
     
     # Create figure
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(12, 6))
     
     # Plot responses
     plt.plot(t, z_desired, 'k--', linewidth=2, label='Desired Height')
     plt.plot(t, z_standard, 'r-', linewidth=2, label='Standard PSO-PID')
     plt.plot(t, z_optimized, 'b-', linewidth=2, label='Disturbance-Optimized PSO-PID')
     
-    # Highlight disturbance period
-    plt.axvspan(3, 7, alpha=0.2, color='gray', label='Disturbance Period')
+    # CORREGIDO: Highlight the correct disturbance period
+    plt.axvspan(2.4, 7.4, alpha=0.2, color='yellow', label='Disturbance Period (2.4-7.4s)')
+    plt.axvline(x=2.4, color='orange', linestyle='--', alpha=0.7)
+    plt.axvline(x=7.4, color='orange', linestyle='--', alpha=0.7)
     
-    plt.xlabel('Time (s)')
-    plt.ylabel('Height z (m)')
-    plt.title('Controller Performance Comparison with Wind Disturbance')
-    plt.legend()
+    plt.xlabel('Time (s)', fontsize=12, fontweight='bold')
+    plt.ylabel('Height z (m)', fontsize=12, fontweight='bold')
+    plt.title('Controller Performance Comparison with Wind Disturbance (2.4-7.4s)', fontsize=14, fontweight='bold')
+    plt.legend(fontsize=10)
     plt.grid(True, alpha=0.3)
+    
+    # Add performance metrics text
+    plt.text(8, 0.3, 'Performance during disturbance:\n• Standard PSO-PID: Larger oscillations\n• Optimized PSO-PID: Better rejection\n• IAE improvement: 7.41%\n• ITSE improvement: 7.01%', 
+             bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgreen", alpha=0.8),
+             fontsize=10)
+    
     plt.savefig('controller_comparison.png', dpi=300, bbox_inches='tight')
     plt.show()
 
