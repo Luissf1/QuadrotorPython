@@ -1,0 +1,15 @@
+RESUMEN EJECUTIVO - ANALISIS COMPARATIVO PSO vs ZIEGLER-NICHOLS
+============================================================
+
+                                  Movimiento       Z  RMSEzN  mu_PSO sigma_PSO        Conclusion
+0                   Despegar sin inclinacion    0.83  0.9382  1.0197    0.5370  No significativa
+1      Despegar con inclinacion roll y pitch  -12.18  0.9416  0.5906    0.1578     Significativa
+2    Despegar sin inclinacion y con giro yaw   -0.88  0.9675  0.8950    0.4493  No significativa
+3                Despegue controlado por yaw   -6.16  0.9382  0.6372    0.2675     Significativa
+4  Despegue transicional y cambio de altitud   -0.97  0.9350  0.7531    1.0310  No significativa
+
+RESUMEN ESTADISTICO:
+- Mejora promedio PSO: 17.5%
+- Tests significativos: 2/5
+- Mejor mejora: Test 4 (32.1%)
+- Valor Z mas extremo: -12.18
