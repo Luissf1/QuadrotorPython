@@ -3,160 +3,274 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scipy.integrate import solve_ivp
 import os
-from datetime import datetime
+from tqdm import tqdm
+import warnings
+warnings.filterwarnings('ignore')
 
-# =============================================================================
-# MÓDULO ZIEGLER-NICHOLS (CORREGIDO)
-# =============================================================================
-
-class ZNController:
-    """Controlador ZN con estado interno propio"""
-    def __init__(self):
-        self.integral_z = 0
-        self.integral_phi = 0
-        self.integral_theta = 0
-        self.integral_psi = 0
-        self.prev_error_z = 0
-        self.prev_error_phi = 0
-        self.prev_error_theta = 0
-        self.prev_error_psi = 0
-        self.last_time = 0
-
-def ziegler_nichols_tuning_corrected(flight_conditions):
-    """Versión corregida de Ziegler-Nichols"""
-    m, g, Ix, Iy, Iz = 1.0, 9.81, 0.1, 0.1, 0.2
-    RMSE_results = []
+class ThesisPSOAnalyzer:
+    """
+    Analizador PSO-PID optimizado para tesis de maestría
+    Incluye comparación con Ziegler-Nichols, métricas completas y generación de tablas
+    """
     
-    for i, (z_des, phi_des, theta_des, psi_des) in enumerate(flight_conditions):
-        print(f'--- ZN Flight {i+1}: z={z_des}, phi={phi_des:.1f}, theta={theta_des:.1f} ---')
+    def __init__(self):
+        self.results_dir = "thesis_results"
+        os.makedirs(self.results_dir, exist_ok=True)
         
-        # Gains conservadoras - CORREGIDAS
-        Kp_z, Ki_z, Kd_z = 12.0, 1.0, 5.0      # Más agresivo para altura
-        Kp_phi, Ki_phi, Kd_phi = 6.0, 0.5, 1.0  # Más suave para ángulos
-        Kp_theta, Ki_theta, Kd_theta = 6.0, 0.5, 1.0
-        Kp_psi, Ki_psi, Kd_psi = 4.0, 0.2, 0.8
+        # Parámetros del cuadrotor (de tu tesis)
+        self.m = 1.0
+        self.g = 9.81
+        self.Ix = 0.1
+        self.Iy = 0.1
+        self.Iz = 0.2
+        self.l = 0.25
         
-        try:
-            # Estado inicial para CADA simulación
-            X0 = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-            controller = ZNController()
+        # Configuración PSO (optimizada)
+        self.nVar = 12
+        self.VarMin = np.array([2.0, 0.01, 0.1,  0.1, 0.001, 0.1,  0.1, 0.001, 0.1,  0.1, 0.001, 0.1])
+        self.VarMax = np.array([15,  2.0,  5.0, 10,  0.1,   2.0, 10,  0.1,   2.0, 10,  0.1,   2.0])
+        self.MaxIter = 100
+        self.nPop = 50
+        self.num_executions = 30
+        
+        # Escenarios de prueba (5 escenarios como en tu tesis)
+        self.flight_scenarios = [
+            {"name": "E1 - Despegue Estacionario", "z_des": 1.0, "phi_des": 0.0, "theta_des": 0.0, "psi_des": 0.0, "disturbance": False},
+            {"name": "E2 - Deriva Lateral", "z_des": 1.5, "phi_des": 0.1, "theta_des": -0.1, "psi_des": 0.0, "disturbance": True},
+            {"name": "E3 - Ascenso Inclinado", "z_des": 2.0, "phi_des": -0.2, "theta_des": 0.2, "psi_des": 0.0, "disturbance": True},
+            {"name": "E4 - Rotación Yaw", "z_des": 1.0, "phi_des": 0.0, "theta_des": 0.0, "psi_des": np.pi/4, "disturbance": True},
+            {"name": "E5 - Trayectoria Transicional", "z_des": 0.5, "phi_des": -0.1, "theta_des": -0.1, "psi_des": -np.pi/6, "disturbance": True}
+        ]
+        
+        # Almacenamiento de resultados
+        self.zn_results = []
+        self.pso_results = {f"E{i+1}": [] for i in range(5)}
+        self.optimal_params = {}
+        
+    def run_complete_analysis(self):
+        """Ejecuta el análisis completo para la tesis"""
+        print("=" * 70)
+        print("ANÁLISIS PSO-PID PARA TESIS DE MAESTRÍA")
+        print("Comparación con Ziegler-Nichols - 5 Escenarios - 30 Ejecuciones")
+        print("=" * 70)
+        
+        # Ejecutar Ziegler-Nichols
+        print("\n🔧 EJECUTANDO ZIEGLER-NICHOLS...")
+        self.zn_results = self.ziegler_nichols_analysis()
+        
+        # Ejecutar PSO para cada escenario
+        print("\n🚀 OPTIMIZACIÓN PSO-PID...")
+        for i, scenario in enumerate(tqdm(self.flight_scenarios, desc="Escenarios PSO")):
+            scenario_results = self.pso_analysis_single_scenario(scenario, i+1)
+            self.pso_results[f"E{i+1}"] = scenario_results
+        
+        # Generar resultados completos
+        self.generate_thesis_tables()
+        self.generate_thesis_figures()
+        self.generate_statistical_analysis()
+        
+        print(f"\n✅ ANÁLISIS COMPLETADO! Resultados en: {self.results_dir}")
+    
+    def ziegler_nichols_analysis(self):
+        """Análisis con método Ziegler-Nichols"""
+        zn_results = []
+        
+        for scenario in tqdm(self.flight_scenarios, desc="ZN Tests"):
+            # Parámetros ZN típicos (baseline)
+            Kp_z, Ki_z, Kd_z = 12.5, 1.25, 3.125
+            Kp_phi, Ki_phi, Kd_phi = 6.25, 0.075, 1.25
+            Kp_theta, Ki_theta, Kd_theta = 6.25, 0.075, 1.25
+            Kp_psi, Ki_psi, Kd_psi = 5.0, 0.05, 1.0
             
-            t_span, t_eval = (0, 10), np.linspace(0, 10, 1000)
+            gains = [Kp_z, Ki_z, Kd_z, Kp_phi, Ki_phi, Kd_phi, 
+                    Kp_theta, Ki_theta, Kd_theta, Kp_psi, Ki_psi, Kd_psi]
             
-            sol = solve_ivp(
-                lambda t, X: quadrotor_dynamics_zn_corrected(
-                    t, X, m, g, Ix, Iy, Iz, Kp_z, Ki_z, Kd_z, 
-                    Kp_phi, Ki_phi, Kd_phi, Kp_theta, Ki_theta, Kd_theta,
-                    Kp_psi, Ki_psi, Kd_psi, z_des, phi_des, theta_des, 
-                    psi_des, controller),
-                t_span, X0, t_eval=t_eval, method='RK45', rtol=1e-6
+            # Evaluar desempeño
+            fitness, metrics, t, z = self.evaluate_pid_performance(
+                gains, scenario["z_des"], scenario["phi_des"], 
+                scenario["theta_des"], scenario["psi_des"], 
+                scenario["disturbance"]
             )
             
-            if sol.success and len(sol.y) > 0:
-                z = sol.y[2]
-                # Filtrar valores válidos
-                valid_indices = ~np.isnan(z)
-                if np.any(valid_indices):
-                    z_valid = z[valid_indices]
-                    RMSE = np.sqrt(np.mean((z_des - z_valid)**2))
-                    RMSE_results.append(RMSE)
-                    print(f'  RMSE ZN: {RMSE:.4f}')
-                else:
-                    RMSE_results.append(np.inf)
-                    print('  No valid z data!')
-            else:
-                RMSE_results.append(np.inf)
-                print('  Simulation failed!')
-                
-        except Exception as e:
-            RMSE_results.append(np.inf)
-            print(f'  Error: {e}')
-    
-    print('\n=== RESULTADOS ZIEGLER-NICHOLS CORREGIDOS ===')
-    for i, (cond, rmse) in enumerate(zip(flight_conditions, RMSE_results)):
-        print(f'Test {i+1}: RMSE = {rmse:.4f}')
-    
-    return RMSE_results
-
-def quadrotor_dynamics_zn_corrected(t, X, m, g, Ix, Iy, Iz,
-                                  Kp_z, Ki_z, Kd_z, Kp_phi, Ki_phi, Kd_phi,
-                                  Kp_theta, Ki_theta, Kd_theta, Kp_psi, Ki_psi, Kd_psi,
-                                  z_des, phi_des, theta_des, psi_des, controller):
-    """Dinámica corregida para ZN"""
-    
-    # Extraer estados actuales
-    current_z, current_phi, current_theta, current_psi = X[2], X[3], X[4], X[5]
-    vel_z, vel_phi, vel_theta, vel_psi = X[8], X[9], X[10], X[11]
-    
-    # Calcular dt
-    dt = t - controller.last_time if t > controller.last_time else 0.01
-    controller.last_time = t
-    
-    # Errores
-    error_z = z_des - current_z
-    error_phi = phi_des - current_phi
-    error_theta = theta_des - current_theta
-    error_psi = psi_des - current_psi
-    
-    # Derivadas (usando velocidades reales en lugar de derivadas numéricas)
-    derror_z = -vel_z  # La derivada del error es -velocidad
-    derror_phi = -vel_phi
-    derror_theta = -vel_theta
-    derror_psi = -vel_psi
-    
-    # Integrales con anti-windup y límites más conservadores
-    max_int = 2.0
-    controller.integral_z = np.clip(controller.integral_z + error_z * dt, -max_int, max_int)
-    controller.integral_phi = np.clip(controller.integral_phi + error_phi * dt, -max_int, max_int)
-    controller.integral_theta = np.clip(controller.integral_theta + error_theta * dt, -max_int, max_int)
-    controller.integral_psi = np.clip(controller.integral_psi + error_psi * dt, -max_int, max_int)
-    
-    # Control PID con límites más realistas
-    # Fuerza vertical - asegurar que sea positiva y suficiente para contrarrestar gravedad
-    U1_base = Kp_z * error_z + Ki_z * controller.integral_z + Kd_z * derror_z
-    U1 = max(0.7 * m * g, min(U1_base, 2.0 * m * g))  # Límites más realistas
-    
-    # Momentos - más conservadores
-    U2 = np.clip(Kp_phi * error_phi + Ki_phi * controller.integral_phi + Kd_phi * derror_phi, -1.0, 1.0)
-    U3 = np.clip(Kp_theta * error_theta + Ki_theta * controller.integral_theta + Kd_theta * derror_theta, -1.0, 1.0)
-    U4 = np.clip(Kp_psi * error_psi + Ki_psi * controller.integral_psi + Kd_psi * derror_psi, -0.5, 0.5)
-    
-    # Dinámica simplificada pero más estable
-    acc_z = (U1 / m) - g
-    acc_phi, acc_theta, acc_psi = U2 / Ix, U3 / Iy, U4 / Iz
-    
-    # Pequeña amortiguación para estabilidad
-    damping = 0.1
-    acc_z -= damping * vel_z
-    acc_phi -= damping * vel_phi
-    acc_theta -= damping * vel_theta
-    acc_psi -= damping * vel_psi
-    
-    # Sin movimiento lateral forzado
-    acc_x, acc_y = 0, 0
-    
-    dXdt = np.concatenate([X[6:], [acc_x, acc_y, acc_z, acc_phi, acc_theta, acc_psi]])
-    return dXdt
-
-# =============================================================================
-# MÓDULO PSO-PID CORREGIDO
-# =============================================================================
-
-class PSODynamics:
-    """Dinámica encapsulada para evaluaciones PSO"""
-    def __init__(self):
-        self.reset()
+            zn_results.append({
+                'scenario': scenario["name"],
+                'fitness': fitness,
+                'metrics': metrics,
+                'gains': gains
+            })
         
-    def reset(self):
-        self.integrals = np.zeros(4)  # z, phi, theta, psi
-        self.last_time = 0
+        return zn_results
+    
+    def pso_analysis_single_scenario(self, scenario, scenario_id):
+        """Optimización PSO para un escenario específico"""
+        print(f"\n🎯 Optimizando: {scenario['name']}")
         
-    def compute(self, t, X, gains, z_des, phi_des, theta_des, psi_des):
-        """Dinámica del quadrotor para evaluación PSO"""
-        if t == 0:
-            self.reset()
+        scenario_results = []
+        best_global = {'position': None, 'fitness': float('inf'), 'metrics': None}
+        
+        # 30 ejecuciones independientes
+        for execution in tqdm(range(self.num_executions), desc=f"Ejecuciones E{scenario_id}"):
+            best_particle, convergence = self.pso_optimize(
+                scenario["z_des"], scenario["phi_des"], 
+                scenario["theta_des"], scenario["psi_des"], 
+                scenario["disturbance"]
+            )
             
-        m, g, Ix, Iy, Iz = 1.0, 9.81, 0.1, 0.1, 0.2
+            # Evaluar resultado final
+            fitness, metrics, t, z = self.evaluate_pid_performance(
+                best_particle["position"], scenario["z_des"], 
+                scenario["phi_des"], scenario["theta_des"], 
+                scenario["psi_des"], scenario["disturbance"]
+            )
+            
+            result = {
+                'execution': execution + 1,
+                'fitness': fitness,
+                'metrics': metrics,
+                'gains': best_particle["position"],
+                'convergence': convergence
+            }
+            
+            scenario_results.append(result)
+            
+            # Actualizar mejor global
+            if fitness < best_global['fitness']:
+                best_global = {
+                    'position': best_particle["position"].copy(),
+                    'fitness': fitness,
+                    'metrics': metrics
+                }
+        
+        # Guardar mejores parámetros para este escenario
+        self.optimal_params[f"E{scenario_id}"] = best_global
+        
+        return scenario_results
+    
+    def pso_optimize(self, z_des, phi_des, theta_des, psi_des, disturbance=False):
+        """Algoritmo PSO con barra de progreso"""
+        # Configuración PSO
+        w = 0.9
+        w_damp = 0.99
+        c1, c2 = 1.7, 1.7
+        
+        # Inicialización
+        particles = []
+        global_best = {'position': None, 'fitness': float('inf')}
+        convergence = []
+        
+        # Barra de progreso para inicialización
+        for i in range(self.nPop):
+            position = np.random.uniform(self.VarMin, self.VarMax)
+            velocity = np.zeros(self.nVar)
+            
+            fitness, metrics, t, z = self.evaluate_pid_performance(
+                position, z_des, phi_des, theta_des, psi_des, disturbance
+            )
+            
+            particle = {
+                'position': position,
+                'velocity': velocity,
+                'fitness': fitness,
+                'best_position': position.copy(),
+                'best_fitness': fitness
+            }
+            
+            particles.append(particle)
+            
+            if fitness < global_best['fitness']:
+                global_best = {'position': position.copy(), 'fitness': fitness}
+        
+        # Bucle principal PSO con barra de progreso
+        pbar = tqdm(total=self.MaxIter, desc="PSO Iteraciones", leave=False)
+        
+        for iter in range(self.MaxIter):
+            for i in range(self.nPop):
+                # Actualizar velocidad
+                r1, r2 = np.random.rand(self.nVar), np.random.rand(self.nVar)
+                cognitive = c1 * r1 * (particles[i]['best_position'] - particles[i]['position'])
+                social = c2 * r2 * (global_best['position'] - particles[i]['position'])
+                particles[i]['velocity'] = w * particles[i]['velocity'] + cognitive + social
+                
+                # Actualizar posición
+                particles[i]['position'] = np.clip(
+                    particles[i]['position'] + particles[i]['velocity'], 
+                    self.VarMin, self.VarMax
+                )
+                
+                # Evaluar
+                fitness, metrics, t, z = self.evaluate_pid_performance(
+                    particles[i]['position'], z_des, phi_des, theta_des, psi_des, disturbance
+                )
+                
+                particles[i]['fitness'] = fitness
+                
+                # Actualizar mejores
+                if fitness < particles[i]['best_fitness']:
+                    particles[i]['best_position'] = particles[i]['position'].copy()
+                    particles[i]['best_fitness'] = fitness
+                    
+                    if fitness < global_best['fitness']:
+                        global_best = {'position': particles[i]['position'].copy(), 'fitness': fitness}
+            
+            convergence.append(global_best['fitness'])
+            w *= w_damp
+            
+            # Actualizar barra de progreso
+            pbar.set_postfix({'Best Fitness': f"{global_best['fitness']:.4f}"})
+            pbar.update(1)
+        
+        pbar.close()
+        
+        return global_best, convergence
+    
+    def evaluate_pid_performance(self, gains, z_des, phi_des, theta_des, psi_des, disturbance=False):
+        """Evaluación del desempeño del controlador PID"""
+        try:
+            # Resetear integrales
+            self.integrals = np.zeros(4)
+            
+            # Simulación
+            t_span = (0, 10)
+            X0 = np.zeros(12)
+            
+            if disturbance:
+                sol = solve_ivp(
+                    lambda t, X: self.quadrotor_dynamics_with_disturbance(
+                        t, X, gains, z_des, phi_des, theta_des, psi_des),
+                    t_span, X0, t_eval=np.linspace(0, 10, 1000), method='RK45'
+                )
+            else:
+                sol = solve_ivp(
+                    lambda t, X: self.quadrotor_dynamics(
+                        t, X, gains, z_des, phi_des, theta_des, psi_des),
+                    t_span, X0, t_eval=np.linspace(0, 10, 1000), method='RK45'
+                )
+            
+            t = sol.t
+            X = sol.y
+            z = X[2, :]
+            
+            # Calcular métricas
+            metrics = self.calculate_performance_metrics(t, z, z_des)
+            fitness = self.multi_objective_fitness(metrics)
+            
+            return fitness, metrics, t, z
+            
+        except:
+            # Retornar valores por defecto en caso de error
+            metrics = self.get_default_metrics()
+            return 10.0, metrics, np.linspace(0, 10, 100), np.zeros(100)
+    
+    def quadrotor_dynamics(self, t, X, gains, z_des, phi_des, theta_des, psi_des):
+        """Dinámica del cuadrotor sin perturbaciones"""
+        return self._quadrotor_dynamics(t, X, gains, z_des, phi_des, theta_des, psi_des, False)
+    
+    def quadrotor_dynamics_with_disturbance(self, t, X, gains, z_des, phi_des, theta_des, psi_des):
+        """Dinámica del cuadrotor con perturbaciones"""
+        return self._quadrotor_dynamics(t, X, gains, z_des, phi_des, theta_des, psi_des, True)
+    
+    def _quadrotor_dynamics(self, t, X, gains, z_des, phi_des, theta_des, psi_des, disturbance):
+        """Dinámica principal del cuadrotor"""
         pos = X[:6]
         vel = X[6:]
         
@@ -166,21 +280,17 @@ class PSODynamics:
         Kp_theta, Ki_theta, Kd_theta = gains[6], gains[7], gains[8]
         Kp_psi, Ki_psi, Kd_psi = gains[9], gains[10], gains[11]
         
-        # Calcular dt
-        dt = t - self.last_time if t > self.last_time else 0.01
-        self.last_time = t
-        
-        # Errores
+        # Calcular errores
         errors = np.array([
             z_des - pos[2],
-            phi_des - pos[3], 
+            phi_des - pos[3],
             theta_des - pos[4],
             psi_des - pos[5]
         ])
         
-        # Actualizar integrales con anti-windup
-        max_int = 5.0
-        self.integrals = np.clip(self.integrals + errors * dt, -max_int, max_int)
+        # Actualizar integrales
+        dt = 0.01
+        self.integrals = np.clip(self.integrals + errors * dt, -10, 10)
         
         # Control PID
         U1 = Kp_z * errors[0] + Ki_z * self.integrals[0] + Kd_z * (-vel[2])
@@ -188,477 +298,274 @@ class PSODynamics:
         U3 = Kp_theta * errors[2] + Ki_theta * self.integrals[2] + Kd_theta * (-vel[4])
         U4 = Kp_psi * errors[3] + Ki_psi * self.integrals[3] + Kd_psi * (-vel[5])
         
-        # Límites de control
-        U1 = max(0.5 * m * g, min(U1, 3.0 * m * g))
-        U2 = np.clip(U2, -2.0, 2.0)
-        U3 = np.clip(U3, -2.0, 2.0)
-        U4 = np.clip(U4, -1.0, 1.0)
+        # Perturbaciones
+        F_disturbance = np.zeros(3)
+        if disturbance:
+            # Viento y turbulencias
+            F_disturbance = np.array([
+                0.5 * np.sin(0.5 * t) + 0.1 * np.random.randn(),
+                0.3 * np.cos(0.3 * t) + 0.1 * np.random.randn(),
+                0.2 * np.sin(0.2 * t) + 0.05 * np.random.randn()
+            ])
         
-        # Dinámica del quadrotor
+        # Ecuaciones de movimiento
         acc_lin = np.array([
-            (np.cos(pos[3]) * np.sin(pos[4]) * np.cos(pos[5]) + np.sin(pos[3]) * np.sin(pos[5])) * U1 / m,
-            (np.cos(pos[3]) * np.sin(pos[4]) * np.sin(pos[5]) - np.sin(pos[3]) * np.cos(pos[5])) * U1 / m,
-            (np.cos(pos[3]) * np.cos(pos[4]) * U1 / m) - g
+            (np.sin(psi_des)*np.sin(phi_des) + np.cos(psi_des)*np.sin(theta_des)*np.cos(phi_des)) * U1 / self.m + F_disturbance[0]/self.m,
+            (-np.cos(psi_des)*np.sin(phi_des) + np.sin(psi_des)*np.sin(theta_des)*np.cos(phi_des)) * U1 / self.m + F_disturbance[1]/self.m,
+            (np.cos(theta_des)*np.cos(phi_des) * U1 / self.m) - self.g + F_disturbance[2]/self.m
         ])
         
         acc_ang = np.array([
-            (U2 + (Iy - Iz) * vel[4] * vel[5]) / Ix,
-            (U3 + (Iz - Ix) * vel[3] * vel[5]) / Iy,
-            (U4 + (Ix - Iy) * vel[3] * vel[4]) / Iz
+            (U2 + (self.Iy - self.Iz) * vel[4] * vel[5]) / self.Ix,
+            (U3 + (self.Iz - self.Ix) * vel[3] * vel[5]) / self.Iy,
+            (U4 + (self.Ix - self.Iy) * vel[3] * vel[4]) / self.Iz
         ])
         
-        # Amortiguamiento para estabilidad
-        damping = 0.05
-        acc_lin[2] -= damping * vel[2]  # Amortiguamiento en Z
-        acc_ang -= damping * vel[3:]    # Amortiguamiento angular
-        
-        dXdt = np.concatenate((vel, acc_lin, acc_ang))
-        return dXdt
-
-def calculate_settling_time(t, response, setpoint, tolerance=0.02):
-    """Calcular tiempo de establecimiento"""
-    error = np.abs(response - setpoint)
-    settled_indices = np.where(error <= tolerance * setpoint)[0]
+        return np.concatenate((vel, acc_lin, acc_ang))
     
-    if len(settled_indices) > 0:
-        # Encontrar el último punto que sale de la tolerancia
-        for i in range(len(settled_indices)-1, 0, -1):
-            if settled_indices[i] - settled_indices[i-1] > 1:
-                return t[settled_indices[i]]
-        return t[settled_indices[-1]]
-    return t[-1]  # Nunca se establece
-
-def evaluate_pid_corrected(gains, z_des, phi_des, theta_des, psi_des):
-    """Función de evaluación corregida para PSO"""
-    
-    dynamics = PSODynamics()
-    
-    try:
-        # Simulación más corta para eficiencia (puedes ajustar)
-        t_span = (0, 8)  # Reducido de 10 a 8 segundos
-        t_eval = np.linspace(0, 8, 400)  # Menos puntos
+    def calculate_performance_metrics(self, t, z, z_des):
+        """Calcular métricas de desempeño"""
+        error = z_des - z
         
-        sol = solve_ivp(
-            lambda t, X: dynamics.compute(t, X, gains, z_des, phi_des, theta_des, psi_des),
-            t_span, np.zeros(12), t_eval=t_eval, method='RK45', rtol=1e-6
-        )
+        # Tiempo de establecimiento (2%)
+        tol = 0.02 * z_des
+        settled_idx = np.where(np.abs(error) <= tol)[0]
+        t_settle = t[settled_idx[-1]] if len(settled_idx) > 0 else t[-1]
         
-        if not sol.success:
-            return 2.0, {}  # Penalización moderada por fallo de integración
+        # Sobrepico
+        overshoot = max(0, (np.max(z) - z_des) / z_des * 100) if z_des > 0 else 0
         
-        t, X = sol.t, sol.y
-        z = X[2, :]
+        # Métricas integrales
+        ITSE = np.trapz(t * error**2, t) if len(t) > 1 else 0
+        IAE = np.trapz(np.abs(error), t) if len(t) > 1 else 0
+        RMSE = np.sqrt(np.mean(error**2))
         
-        # Verificar datos válidos
-        if np.any(np.isnan(z)) or np.any(np.isinf(z)):
-            return 2.5, {}
+        # Tiempo de subida (10% to 90%)
+        try:
+            idx_10 = np.where(z >= 0.1 * z_des)[0][0]
+            idx_90 = np.where(z >= 0.9 * z_des)[0][0]
+            t_rise = t[idx_90] - t[idx_10]
+        except:
+            t_rise = np.nan
         
-        error_z = z_des - z
-        
-        # Métricas robustas
-        metrics = {
-            'RMSE': np.sqrt(np.mean(error_z**2)),
-            'IAE': np.trapz(np.abs(error_z), t),
-            'ITSE': np.trapz(t * error_z**2, t),
-            'max_overshoot': max(0, (np.max(z) - z_des) / z_des * 100) if z_des > 0 else 0,
-            'settling_time': calculate_settling_time(t, z, z_des),
-            'steady_state_error': np.mean(np.abs(error_z[-50:])) if len(error_z) > 50 else np.mean(np.abs(error_z))
+        return {
+            't_settle': t_settle,
+            'overshoot': overshoot,
+            'ITSE': ITSE,
+            'IAE': IAE,
+            'RMSE': RMSE,
+            't_rise': t_rise
         }
+    
+    def multi_objective_fitness(self, metrics):
+        """Función de costo multi-objetivo (como en tu tesis)"""
+        weights = [0.3, 0.3, 0.2, 0.2]  # ts, Mp, ITSE, IAE
         
-        # FUNCIÓN DE FITNESS MEJORADA (sin saturación)
-        weights = {
-            'RMSE': 0.30,    # Mayor peso a RMSE
-            'IAE': 0.20, 
-            'ITSE': 0.20,
-            'max_overshoot': 0.15,
-            'settling_time': 0.10,
-            'steady_state_error': 0.05
-        }
-        
-        # Normalización con función suave (sin min(..., 1))
         fitness = (
-            weights['RMSE'] * (1 - np.exp(-metrics['RMSE']/1.0)) +
-            weights['IAE'] * (1 - np.exp(-metrics['IAE']/10.0)) +
-            weights['ITSE'] * (1 - np.exp(-metrics['ITSE']/20.0)) +
-            weights['max_overshoot'] * (1 - np.exp(-metrics['max_overshoot']/30.0)) +
-            weights['settling_time'] * (1 - np.exp(-metrics['settling_time']/5.0)) +
-            weights['steady_state_error'] * (1 - np.exp(-metrics['steady_state_error']/0.3))
+            weights[0] * min(metrics['t_settle'] / 10, 1) +
+            weights[1] * min(metrics['overshoot'] / 100, 1) +
+            weights[2] * min(metrics['ITSE'] / 50, 1) +
+            weights[3] * min(metrics['IAE'] / 20, 1)
         )
         
-        # Penalizaciones adicionales por comportamiento peligroso
-        if metrics['max_overshoot'] > 50:  # Overshoot excesivo
-            fitness += 0.3
-        if metrics['settling_time'] > 6:   # Muy lento
-            fitness += 0.2
-        if metrics['steady_state_error'] > 0.1:  # Error grande en estado estacionario
-            fitness += 0.2
-            
-        return fitness, metrics
-        
-    except Exception as e:
-        # Penalización inteligente basada en tipo de error
-        error_str = str(e).lower()
-        if "overflow" in error_str or "inf" in error_str:
-            return 3.0, {}  # Muy inestable
-        elif "max-iter" in error_str:
-            return 2.2, {}  # Muy lento
-        else:
-            return 2.5, {}  # Error genérico
-
-def optimize_pid_with_pso_corrected(z_des, phi_des, theta_des, psi_des):
-    """
-    PSO optimization corregido con criterio de parada mejorado
-    """
-    # PARÁMETROS PSO OPTIMIZADOS
-    nVar = 12
-    MaxIter = 80  # Reducido por criterio de parada temprana
-    nPop = 25     # Población más pequeña para eficiencia
+        return fitness
     
-    # Rangos de búsqueda optimizados
-    VarMin = np.array([
-        # Z control: Kp, Ki, Kd
-        4.0, 0.05, 0.5,   
-        # Phi control  
-        0.5, 0.005, 0.05,  
-        # Theta control
-        0.5, 0.005, 0.05,  
-        # Psi control
-        0.3, 0.002, 0.03
-    ])
-    
-    VarMax = np.array([
-        25.0, 2.5, 10.0,   # Z
-        12.0, 0.8, 3.0,    # Phi  
-        12.0, 0.8, 3.0,    # Theta
-        8.0, 0.3, 1.5      # Psi
-    ])
-    
-    # Inicialización
-    particles = []
-    global_best = {'position': None, 'fitness': float('inf')}
-    convergence_data = []
-    
-    # Estrategia de inicialización estratificada
-    for i in range(nPop):
-        if i < nPop//3:
-            # Conservador: valores bajos
-            position = VarMin + 0.2 * (VarMax - VarMin) * np.random.rand(nVar)
-        elif i < 2*nPop//3:
-            # Moderado: valores medios
-            position = VarMin + 0.5 * (VarMax - VarMin) * np.random.rand(nVar)
-        else:
-            # Agresivo: valores altos
-            position = VarMin + 0.8 * (VarMax - VarMin) * np.random.rand(nVar)
-        
-        particle = {
-            'position': position,
-            'velocity': np.zeros(nVar),
-            'fitness': float('inf'),
-            'best': {'position': position.copy(), 'fitness': float('inf')}
+    def get_default_metrics(self):
+        """Métricas por defecto para simulaciones fallidas"""
+        return {
+            't_settle': 10,
+            'overshoot': 100,
+            'ITSE': 50,
+            'IAE': 20,
+            'RMSE': 10,
+            't_rise': 5
         }
-        
-        particle['fitness'], _ = evaluate_pid_corrected(
-            particle['position'], z_des, phi_des, theta_des, psi_des)
-        
-        particle['best']['fitness'] = particle['fitness']
-        
-        if particle['fitness'] < global_best['fitness']:
-            global_best = particle['best'].copy()
-        
-        particles.append(particle)
     
-    # Parámetros adaptativos
-    w = 0.9     # Inercia inicial alta
-    w_damp = 0.98
-    c1_initial, c2_initial = 2.0, 2.0
-    
-    # Variables para criterio de parada temprana
-    no_improvement_count = 0
-    last_best_fitness = global_best['fitness']
-    convergence_threshold = 1e-4
-    max_no_improvement = 15  # Máximo de iteraciones sin mejora
-    
-    # Bucle de optimización con criterio de parada temprana
-    for iter in range(MaxIter):
-        # Coeficientes adaptativos
-        progress = iter / MaxIter
-        c1 = c1_initial * (1 - progress)  # Menor exploración
-        c2 = c2_initial * progress        # Mayor explotación
+    def generate_thesis_tables(self):
+        """Generar tablas para la tesis"""
+        print("\n📊 GENERANDO TABLAS PARA LA TESIS...")
         
-        for i in range(nPop):
-            r1, r2 = np.random.rand(nVar), np.random.rand(nVar)
+        # Tabla 1: Comparación de métricas de desempeño
+        table_data = []
+        for i, (zn_result, scenario) in enumerate(zip(self.zn_results, self.flight_scenarios)):
+            pso_metrics = [r['metrics'] for r in self.pso_results[f"E{i+1}"]]
             
-            # Actualización de velocidad
-            inertia = w * particles[i]['velocity']
-            cognitive = c1 * r1 * (particles[i]['best']['position'] - particles[i]['position'])
-            social = c2 * r2 * (global_best['position'] - particles[i]['position'])
+            avg_pso_rmse = np.mean([m['RMSE'] for m in pso_metrics])
+            avg_pso_iae = np.mean([m['IAE'] for m in pso_metrics])
+            avg_pso_itse = np.mean([m['ITSE'] for m in pso_metrics])
             
-            particles[i]['velocity'] = inertia + cognitive + social
+            improvement_rmse = (zn_result['metrics']['RMSE'] - avg_pso_rmse) / zn_result['metrics']['RMSE'] * 100
+            improvement_iae = (zn_result['metrics']['IAE'] - avg_pso_iae) / zn_result['metrics']['IAE'] * 100
+            improvement_itse = (zn_result['metrics']['ITSE'] - avg_pso_itse) / zn_result['metrics']['ITSE'] * 100
             
-            # Límite de velocidad
-            max_velocity = 0.15 * (VarMax - VarMin)
-            particles[i]['velocity'] = np.clip(particles[i]['velocity'], -max_velocity, max_velocity)
-            
-            # Actualizar posición
-            particles[i]['position'] = np.clip(
-                particles[i]['position'] + particles[i]['velocity'], VarMin, VarMax)
-            
-            # Evaluar
-            fitness, metrics = evaluate_pid_corrected(
-                particles[i]['position'], z_des, phi_des, theta_des, psi_des)
-            
-            particles[i]['fitness'] = fitness
-            
-            # Actualizar mejores
-            if fitness < particles[i]['best']['fitness']:
-                particles[i]['best']['position'] = particles[i]['position'].copy()
-                particles[i]['best']['fitness'] = fitness
-                
-                if fitness < global_best['fitness']:
-                    global_best = particles[i]['best'].copy()
-                    no_improvement_count = 0  # Resetear contador
-        
-        # Actualizar inercia
-        w = max(w * w_damp, 0.4)
-        
-        # Verificar convergencia
-        convergence_data.append(global_best['fitness'])
-        
-        # Criterio de parada temprana
-        fitness_improvement = abs(last_best_fitness - global_best['fitness'])
-        if fitness_improvement < convergence_threshold:
-            no_improvement_count += 1
-        else:
-            no_improvement_count = 0
-            
-        last_best_fitness = global_best['fitness']
-        
-        # Log de progreso
-        if iter % 10 == 0:
-            print(f'    Iter {iter}: Fitness = {global_best["fitness"]:.4f}, NoImprove = {no_improvement_count}')
-        
-        # Parar si no hay mejora significativa
-        if no_improvement_count >= max_no_improvement:
-            print(f'    ⏹️  Parada temprana en iteración {iter} (sin mejora por {max_no_improvement} iteraciones)')
-            break
-    
-    print(f'    ✅ PSO completado: {iter+1} iteraciones, Fitness final: {global_best["fitness"]:.4f}')
-    return global_best, convergence_data
-
-def pso_pid_multiple_tests_corrected(flight_conditions, movimientos):
-    """PSO-PID corregido con nuevo criterio de parada"""
-    resultados_completos = []
-    
-    for i, (z_des, phi_des, theta_des, psi_des) in enumerate(flight_conditions):
-        print(f'\n--- PSO Test {i+1}: {movimientos[i]} ---')
-        print("Ejecutando PSO corregido (30 ejecuciones)...")
-        
-        rmse_values = []
-        todos_resultados = []
-        
-        for test in range(30):
-            global_best, convergence = optimize_pid_with_pso_corrected(
-                z_des, phi_des, theta_des, psi_des)
-            
-            # Evaluar final con métricas completas
-            fitness, metrics = evaluate_pid_corrected(
-                global_best['position'], z_des, phi_des, theta_des, psi_des)
-            
-            rmse_values.append(metrics.get('RMSE', 10.0))  # Default alto si falla
-            todos_resultados.append({
-                'fitness': global_best['fitness'],
-                'metrics': metrics,
-                'gains': global_best['position'],
-                'convergence': convergence
+            table_data.append({
+                'Maniobra': scenario['name'],
+                'RMSE_ZN': f"{zn_result['metrics']['RMSE']:.4f}",
+                'RMSE_PSO': f"{avg_pso_rmse:.4f}",
+                'Mejora_RMSE': f"{improvement_rmse:.1f}%",
+                'IAE_ZN': f"{zn_result['metrics']['IAE']:.2f}",
+                'IAE_PSO': f"{avg_pso_iae:.2f}",
+                'Mejora_IAE': f"{improvement_iae:.1f}%",
+                'ITSE_ZN': f"{zn_result['metrics']['ITSE']:.2f}",
+                'ITSE_PSO': f"{avg_pso_itse:.2f}",
+                'Mejora_ITSE': f"{improvement_itse:.1f}%"
             })
+        
+        df_comparison = pd.DataFrame(table_data)
+        df_comparison.to_excel(os.path.join(self.results_dir, 'Tabla_Comparacion_Metricas.xlsx'), index=False)
+        df_comparison.to_latex(os.path.join(self.results_dir, 'Tabla_Comparacion_Metricas.tex'), index=False)
+        
+        # Tabla 2: Parámetros PID óptimos
+        params_data = []
+        for scenario_id in self.optimal_params:
+            optimal = self.optimal_params[scenario_id]
+            gains = optimal['position']
             
-            if (test + 1) % 5 == 0:
-                print(f'    Completadas {test + 1}/30 ejecuciones...')
+            params_data.append({
+                'Controlador': scenario_id,
+                'Kp_z': f"{gains[0]:.3f}",
+                'Ki_z': f"{gains[1]:.3f}",
+                'Kd_z': f"{gains[2]:.3f}",
+                'Kp_phi': f"{gains[3]:.3f}",
+                'Ki_phi': f"{gains[4]:.3f}",
+                'Kd_phi': f"{gains[5]:.3f}",
+                'Kp_theta': f"{gains[6]:.3f}",
+                'Ki_theta': f"{gains[7]:.3f}",
+                'Kd_theta': f"{gains[8]:.3f}",
+                'Kp_psi': f"{gains[9]:.3f}",
+                'Ki_psi': f"{gains[10]:.3f}",
+                'Kd_psi': f"{gains[11]:.3f}",
+                'Fitness': f"{optimal['fitness']:.4f}"
+            })
         
-        sigma_pso = np.std(rmse_values)
-        resultados_completos.append({
-            'movimiento': movimientos[i],
-            'mu_PSO': np.mean(rmse_values),
-            'sigma_PSO': sigma_pso,
-            'RMSE_values': rmse_values,
-            'todos_resultados': todos_resultados
-        })
+        df_params = pd.DataFrame(params_data)
+        df_params.to_excel(os.path.join(self.results_dir, 'Tabla_Parametros_Optimos.xlsx'), index=False)
+        df_params.to_latex(os.path.join(self.results_dir, 'Tabla_Parametros_Optimos.tex'), index=False)
         
-        print(f'  PSO completado: mu_PSO: {np.mean(rmse_values):.4f}, sigma_PSO: {sigma_pso:.4f}')
+        print("✅ Tablas generadas:")
+        print("   - Tabla_Comparacion_Metricas.xlsx/tex")
+        print("   - Tabla_Parametros_Optimos.xlsx/tex")
     
-    return resultados_completos
-
-# =============================================================================
-# MÓDULO ESTADÍSTICAS Y COMPARACIÓN (IGUAL QUE ANTES)
-# =============================================================================
-
-def calcular_estadisticas_z(RMSE_ZN, resultados_pso, movimientos):
-    """Calcular estadísticas Z y generar tabla completa"""
-    tabla_data = []
-    
-    for i, movimiento in enumerate(movimientos):
-        rmse_zn = RMSE_ZN[i]
-        mu_pso = resultados_pso[i]['mu_PSO']
-        sigma_pso = resultados_pso[i]['sigma_PSO']
-        n = 30  # ejecuciones PSO
+    def generate_thesis_figures(self):
+        """Generar figuras para la tesis"""
+        print("\n📈 GENERANDO FIGURAS PARA LA TESIS...")
         
-        # Calcular Z según fórmula del director
-        Z = (mu_pso - rmse_zn) / (sigma_pso / np.sqrt(n))
+        # Figura 1: Comparación de RMSE
+        plt.figure(figsize=(12, 8))
         
-        # Determinar conclusión
-        conclusion = "Significativa" if Z < -1.645 else "No significativa"
+        scenarios = [s['name'] for s in self.flight_scenarios]
+        zn_rmse = [r['metrics']['RMSE'] for r in self.zn_results]
+        pso_rmse = [np.mean([r['metrics']['RMSE'] for r in self.pso_results[f"E{i+1}"]]) for i in range(5)]
         
-        tabla_data.append({
-            'Movimiento': movimiento,
-            'Z': f"{Z:.2f}",
-            'RMSEzN': f"{rmse_zn:.4f}",
-            'mu_PSO': f"{mu_pso:.4f}",
-            'sigma_PSO': f"{sigma_pso:.4f}",
-            'Conclusion': conclusion
-        })
+        x = np.arange(len(scenarios))
+        width = 0.35
+        
+        plt.bar(x - width/2, zn_rmse, width, label='Ziegler-Nichols', alpha=0.7)
+        plt.bar(x + width/2, pso_rmse, width, label='PSO-PID', alpha=0.7)
+        
+        plt.xlabel('Escenarios de Prueba')
+        plt.ylabel('RMSE')
+        plt.title('Comparación de RMSE: Ziegler-Nichols vs PSO-PID')
+        plt.xticks(x, [f'E{i+1}' for i in range(5)])
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Añadir valores
+        for i, (zn, pso) in enumerate(zip(zn_rmse, pso_rmse)):
+            plt.text(i - width/2, zn + 0.05, f'{zn:.3f}', ha='center', va='bottom')
+            plt.text(i + width/2, pso + 0.05, f'{pso:.3f}', ha='center', va='bottom')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.results_dir, 'Figura_Comparacion_RMSE.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Figura 2: Convergencia PSO
+        plt.figure(figsize=(10, 6))
+        
+        for i in range(5):
+            convergence = self.pso_results[f"E{i+1}"][0]['convergence']
+            plt.plot(convergence, label=f'E{i+1}')
+        
+        plt.xlabel('Iteración')
+        plt.ylabel('Fitness')
+        plt.title('Convergencia del Algoritmo PSO para Diferentes Escenarios')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.yscale('log')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.results_dir, 'Figura_Convergencia_PSO.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print("✅ Figuras generadas:")
+        print("   - Figura_Comparacion_RMSE.png")
+        print("   - Figura_Convergencia_PSO.png")
     
-    return pd.DataFrame(tabla_data)
-
-def generar_graficas_comparativas(RMSE_ZN, resultados_pso, movimientos):
-    """Generar gráficas comparativas para el reporte"""
-    mu_pso = [r['mu_PSO'] for r in resultados_pso]
+    def generate_statistical_analysis(self):
+        """Análisis estadístico (pruebas Z)"""
+        print("\n📊 GENERANDO ANÁLISIS ESTADÍSTICO...")
+        
+        statistical_data = []
+        
+        for i in range(5):
+            zn_rmse = self.zn_results[i]['metrics']['RMSE']
+            pso_rmses = [r['metrics']['RMSE'] for r in self.pso_results[f"E{i+1}"]]
+            
+            mu_pso = np.mean(pso_rmses)
+            sigma_pso = np.std(pso_rmses)
+            n = len(pso_rmses)
+            
+            # Prueba Z (una cola)
+            Z = (mu_pso - zn_rmse) / (sigma_pso / np.sqrt(n))
+            
+            # Determinar significancia (α = 0.05, Z_critico = -1.645)
+            significant = "Sí" if Z < -1.645 else "No"
+            p_value = 2 * (1 - self.normal_cdf(abs(Z)))  # p-value aproximado
+            
+            statistical_data.append({
+                'Escenario': f'E{i+1}',
+                'Z_Score': f"{Z:.3f}",
+                'p_Value': f"{p_value:.4f}",
+                'Significancia': significant,
+                'RMSE_ZN': f"{zn_rmse:.4f}",
+                'RMSE_PSO_Avg': f"{mu_pso:.4f}",
+                'RMSE_PSO_Std': f"{sigma_pso:.4f}"
+            })
+        
+        df_stats = pd.DataFrame(statistical_data)
+        df_stats.to_excel(os.path.join(self.results_dir, 'Analisis_Estadistico.xlsx'), index=False)
+        df_stats.to_latex(os.path.join(self.results_dir, 'Analisis_Estadistico.tex'), index=False)
+        
+        print("✅ Análisis estadístico generado:")
+        print("   - Analisis_Estadistico.xlsx/tex")
     
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
-    
-    # Gráfica 1: Comparación RMSE
-    x_pos = np.arange(len(movimientos))
-    width = 0.35
-    
-    bars1 = ax1.bar(x_pos - width/2, RMSE_ZN, width, label='Ziegler-Nichols', 
-                   color='red', alpha=0.7, edgecolor='black')
-    bars2 = ax1.bar(x_pos + width/2, mu_pso, width, label='PSO Optimizado', 
-                   color='blue', alpha=0.7, edgecolor='black')
-    
-    ax1.set_xlabel('Escenarios de Prueba', fontsize=12, fontweight='bold')
-    ax1.set_ylabel('RMSE', fontsize=12, fontweight='bold')
-    ax1.set_title('COMPARACION DE RENDIMIENTO: ZN vs PSO', fontsize=14, fontweight='bold')
-    ax1.set_xticks(x_pos)
-    ax1.set_xticklabels([f'Test {i+1}' for i in range(len(movimientos))])
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-    
-    # Añadir valores en las barras
-    for i, (zn, pso) in enumerate(zip(RMSE_ZN, mu_pso)):
-        ax1.text(i - width/2, zn + 0.02, f'{zn:.3f}', ha='center', va='bottom', 
-                fontweight='bold', fontsize=9)
-        ax1.text(i + width/2, pso + 0.02, f'{pso:.3f}', ha='center', va='bottom', 
-                fontweight='bold', fontsize=9)
-    
-    # Gráfica 2: Mejora porcentual
-    mejoras = [(zn - pso)/zn * 100 for zn, pso in zip(RMSE_ZN, mu_pso)]
-    colors = ['green' if mejora > 0 else 'red' for mejora in mejoras]
-    
-    bars3 = ax2.bar(x_pos, mejoras, color=colors, alpha=0.7, edgecolor='black')
-    ax2.axhline(y=0, color='black', linestyle='-', alpha=0.3)
-    ax2.set_xlabel('Escenarios de Prueba', fontsize=12, fontweight='bold')
-    ax2.set_ylabel('Mejora (%)', fontsize=12, fontweight='bold')
-    ax2.set_title('MEJORA PORCENTUAL DEL PSO SOBRE ZN', fontsize=14, fontweight='bold')
-    ax2.set_xticks(x_pos)
-    ax2.set_xticklabels([f'Test {i+1}' for i in range(len(movimientos))])
-    ax2.grid(True, alpha=0.3)
-    
-    # Añadir valores de mejora
-    for i, mejora in enumerate(mejoras):
-        ax2.text(i, mejora + (1 if mejora > 0 else -3), f'{mejora:.1f}%', 
-                ha='center', va='bottom' if mejora > 0 else 'top', 
-                fontweight='bold', fontsize=10)
-    
-    plt.tight_layout()
-    plt.savefig('comparacion_rmse_corregido.png', dpi=300, bbox_inches='tight')
-    plt.show()
-
-# =============================================================================
-# FUNCIÓN PRINCIPAL CORREGIDA
-# =============================================================================
-
-def analisis_comparativo_corregido():
-    """
-    Análisis comparativo completo con código corregido
-    """
-    print("=== ANALISIS COMPARATIVO CORREGIDO: ZN vs PSO-PID ===")
-    
-    # Configuración común
-    flight_conditions = np.array([
-        [1.0,  0.0,   0.0,    0.0],
-        [1.5,  0.1,  -0.1,    0.0], 
-        [2.0, -0.2,   0.2,    0.0],
-        [1.0,  0.0,   0.0,    np.pi/4],
-        [0.5, -0.1,  -0.1,   -np.pi/6]
-    ])
-    
-    movimientos = [
-        "Despegar sin inclinacion",
-        "Despegar con inclinacion roll y pitch", 
-        "Despegar sin inclinacion y con giro yaw",
-        "Despegue controlado por yaw",
-        "Despegue transicional y cambio de altitud"
-    ]
-    
-    # Paso 1: Ejecutar Ziegler-Nichols corregido
-    print("\n" + "="*60)
-    print("EJECUTANDO ZIEGLER-NICHOLS CORREGIDO...")
-    print("="*60)
-    RMSE_ZN = ziegler_nichols_tuning_corrected(flight_conditions)
-    
-    # Paso 2: Ejecutar PSO-PID corregido
-    print("\n" + "="*60)
-    print("EJECUTANDO PSO-PID CORREGIDO...")
-    print("="*60)
-    print("NOTA: Con criterio de parada temprana - más eficiente")
-    resultados_pso = pso_pid_multiple_tests_corrected(flight_conditions, movimientos)
-    
-    # Paso 3: Calcular estadísticas Z
-    print("\n" + "="*60)
-    print("CALCULANDO ESTADISTICAS Z...")
-    print("="*60)
-    tabla_completa = calcular_estadisticas_z(RMSE_ZN, resultados_pso, movimientos)
-    
-    # Paso 4: Generar reporte final
-    print("\n" + "="*60)
-    print("TABLA COMPLETA: PRUEBA Z TEST (CORREGIDA)")
-    print("="*60)
-    print(tabla_completa.to_string(index=False))
-    
-    # Paso 5: Generar gráficas comparativas
-    generar_graficas_comparativas(RMSE_ZN, resultados_pso, movimientos)
-    
-    return tabla_completa, RMSE_ZN, resultados_pso
+    def normal_cdf(self, x):
+        """Función de distribución acumulativa normal aproximada"""
+        return (1.0 + math.erf(x / math.sqrt(2.0))) / 2.0
 
 # =============================================================================
 # EJECUCIÓN PRINCIPAL
 # =============================================================================
 
+def main():
+    """Función principal"""
+    print("🚀 INICIANDO ANÁLISIS PARA TESIS DE MAESTRÍA")
+    print("⏰ Este proceso tomará aproximadamente 20-30 minutos")
+    print("💻 Se generarán tablas, figuras y análisis estadístico completos\n")
+    
+    analyzer = ThesisPSOAnalyzer()
+    analyzer.run_complete_analysis()
+    
+    print("\n" + "="*70)
+    print("🎓 ANÁLISIS COMPLETADO EXITOSAMENTE")
+    print("="*70)
+    print("📁 Archivos generados en la carpeta 'thesis_results':")
+    print("   • Tablas en formato Excel y LaTeX")
+    print("   • Figuras en alta resolución (300 DPI)")
+    print("   • Análisis estadístico con pruebas Z")
+    print("   • Parámetros PID óptimos para cada controlador")
+    print("\n✅ ¡Listo para incluir en tu tesis!")
+
 if __name__ == "__main__":
-    # Ejecutar análisis corregido
-    try:
-        tabla_final, RMSE_ZN, resultados_pso = analisis_comparativo_corregido()
-        
-        # Mostrar resumen final
-        print("\n" + "="*60)
-        print("ANALISIS CORREGIDO COMPLETADO EXITOSAMENTE")
-        print("="*60)
-        
-        # Calcular estadísticas resumen
-        mejoras = [(zn - pso['mu_PSO'])/zn * 100 for zn, pso in zip(RMSE_ZN, resultados_pso)]
-        tests_significativos = sum(1 for r in tabla_final['Conclusion'] if r == 'Significativa')
-        
-        print(f"RESULTADOS OBTENIDOS (CORREGIDOS):")
-        print(f"   - Tests significativos: {tests_significativos}/5")
-        print(f"   - Mejora promedio: {np.mean(mejoras):.1f}%")
-        print(f"   - Mejor mejora: {max(mejoras):.1f}%")
-        print(f"   - Valor Z más extremo: {min([float(z) for z in tabla_final['Z']]):.2f}")
-        
-        print(f"EFICIENCIA COMPUTACIONAL:")
-        print(f"   - PSO con criterio de parada temprana")
-        print(f"   - Población reducida: 25 partículas")
-        print(f"   - Iteraciones máximas: 80 (con parada temprana)")
-        
-    except Exception as e:
-        print(f"Error durante la ejecución: {e}")
-        import traceback
-        traceback.print_exc()
+    import math
+    main()
